@@ -1,0 +1,5 @@
+config.json
+jobs.json
+bridge.log
+*.pyc
+__pycache__/

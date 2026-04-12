@@ -1,0 +1,19 @@
+{
+  "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+  "user_id": 0,
+  "user_name": "Your Name",
+  "user_context": "Brief description of who you are and what you do, so Claude can tailor responses.",
+  "timezone": "America/New_York",
+  "claude_path": "claude",
+  "context_dirs": [],
+  "email": {
+    "enabled": false,
+    "to": "you@example.com",
+    "method": "graph",
+    "graph_helper": "",
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_pass": ""
+  }
+}

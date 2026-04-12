@@ -1,0 +1,2 @@
+python-telegram-bot>=22.0
+croniter>=6.0
