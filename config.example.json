@@ -3,6 +3,7 @@
   "user_id": 0,
   "user_name": "Your Name",
   "user_context": "Brief description of who you are and what you do, so Claude can tailor responses.",
+  "personality": "Direct and action-oriented. Skip fluff, get to the point. Do the work first, explain after. Pick sensible defaults instead of asking questions. Be concise — the user is on mobile. Have opinions and disagree when something's wrong.",
   "timezone": "America/New_York",
   "claude_path": "claude",
   "context_dirs": [],

@@ -39,6 +39,11 @@ if [ ! -f "$SCRIPT_DIR/config.json" ]; then
 
     read -p "Your name: " USER_NAME
     read -p "Brief description (role, company, style preferences): " USER_CONTEXT
+    echo ""
+    echo "Personality controls how Claude communicates with you."
+    echo "Default: Direct, action-oriented, concise, opinionated."
+    read -p "Custom personality (or press Enter for default): " PERSONALITY
+    PERSONALITY=${PERSONALITY:-Direct and action-oriented. Skip fluff, get to the point. Do the work first, explain after. Pick sensible defaults instead of asking questions. Be concise. Have opinions.}
     read -p "Timezone (e.g. America/New_York): " TIMEZONE
     TIMEZONE=${TIMEZONE:-America/New_York}
 
@@ -76,6 +81,7 @@ if [ ! -f "$SCRIPT_DIR/config.json" ]; then
   "user_id": $USER_ID,
   "user_name": "$USER_NAME",
   "user_context": "$USER_CONTEXT",
+  "personality": "$PERSONALITY",
   "timezone": "$TIMEZONE",
   "claude_path": "$CLAUDE_PATH",
   "context_dirs": [],
@@ -98,6 +104,7 @@ EOFCONFIG
   "user_id": $USER_ID,
   "user_name": "$USER_NAME",
   "user_context": "$USER_CONTEXT",
+  "personality": "$PERSONALITY",
   "timezone": "$TIMEZONE",
   "claude_path": "$CLAUDE_PATH",
   "context_dirs": [],
@@ -117,6 +124,7 @@ EOFCONFIG
   "user_id": $USER_ID,
   "user_name": "$USER_NAME",
   "user_context": "$USER_CONTEXT",
+  "personality": "$PERSONALITY",
   "timezone": "$TIMEZONE",
   "claude_path": "$CLAUDE_PATH",
   "context_dirs": [],

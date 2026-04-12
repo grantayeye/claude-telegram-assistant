@@ -44,6 +44,7 @@ BOT_TOKEN = os.environ.get("CLAUDE_TG_BOT_TOKEN") or CFG["bot_token"]
 USER_ID = CFG["user_id"]
 USER_NAME = CFG.get("user_name", "User")
 USER_CONTEXT = CFG.get("user_context", "")
+PERSONALITY = CFG.get("personality", "Direct and action-oriented. Skip fluff, get to the point. Do the work first, explain after. Pick sensible defaults instead of asking questions. Be concise. Have opinions.")
 TZ = ZoneInfo(CFG.get("timezone", "America/New_York"))
 CLAUDE_PATH = CFG.get("claude_path", "claude")
 CONTEXT_DIRS = [os.path.expanduser(d) for d in CFG.get("context_dirs", [])]
@@ -528,6 +529,9 @@ def build_claude_cmd(output_format="json", streaming=False):
         cmd.extend(["--output-format", output_format])
     for d in CONTEXT_DIRS:
         cmd.extend(["--add-dir", d])
+    # Inject personality and user context
+    system_extra = f"Personality: {PERSONALITY}\n\nUser: {USER_NAME}. {USER_CONTEXT}"
+    cmd.extend(["--append-system-prompt", system_extra])
     return cmd
 
 
