@@ -54,6 +54,7 @@ SESSION_DIR = Path(tempfile.mkdtemp(prefix="claude-tg-"))
 IMAGE_DIR = SESSION_DIR / "images"
 IMAGE_DIR.mkdir(exist_ok=True)
 JOBS_FILE = APP_DIR / "jobs.json"
+HISTORY_FILE = APP_DIR / "history.jsonl"
 
 # Session state
 session = {"id": None, "busy": False}
@@ -66,6 +67,19 @@ def is_authorized(update: Update) -> bool:
 
 def now_tz() -> datetime:
     return datetime.now(TZ)
+
+
+def log_conversation(role: str, text: str, session_id: str = None):
+    """Append a message to the conversation history log."""
+    entry = {
+        "ts": now_tz().isoformat(),
+        "role": role,
+        "text": text[:5000],  # cap at 5k chars per entry
+    }
+    if session_id:
+        entry["session"] = session_id
+    with open(HISTORY_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 # ===================== JOBS SYSTEM =====================
@@ -376,6 +390,7 @@ async def parse_and_create_job(text: str, update: Update):
 async def deliver_result(job: dict, result: str):
     delivery = job.get("delivery", "telegram")
     name = job["name"]
+    log_conversation("job", f"[{name}] {result}")
 
     if delivery == "on-failure":
         lower = result.lower()
@@ -685,6 +700,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         logger.info(f"Message from {USER_NAME}: {prompt[:100]}")
+        log_conversation("user", prompt, session.get("id"))
         await run_claude_streaming(prompt, update, context, status_msg)
     except asyncio.TimeoutError:
         await safe_edit(status_msg, "Timed out (5 min limit). Try again or /new.")
@@ -704,7 +720,8 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Describe recurring tasks naturally and I'll schedule them.\n\n"
         f"Session: /new /status\n"
         f"Jobs: /jobs /addjob /templates\n"
-        f"      /runjob /rmjob /editjob /togglejob"
+        f"      /runjob /rmjob /editjob /togglejob\n"
+        f"History: /search <query> /history"
     )
 
 
@@ -729,7 +746,81 @@ async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Session cleared.")
 
 
+async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search conversation history: /search <query>"""
+    if not is_authorized(update):
+        return
+    query = update.message.text.replace("/search", "", 1).strip().lower()
+    if not query:
+        await update.message.reply_text("Usage: /search <query>\nSearches all past conversations.")
+        return
+    if not HISTORY_FILE.exists():
+        await update.message.reply_text("No conversation history yet.")
+        return
+
+    matches = []
+    for line in HISTORY_FILE.read_text().splitlines():
+        try:
+            entry = json.loads(line)
+            if query in entry.get("text", "").lower():
+                ts = entry["ts"][:16].replace("T", " ")
+                role = entry["role"]
+                text = entry["text"][:150]
+                matches.append(f"[{ts}] {role}: {text}")
+        except json.JSONDecodeError:
+            continue
+
+    if not matches:
+        await update.message.reply_text(f"No results for: {query}")
+        return
+
+    # Show most recent matches (last 15)
+    recent = matches[-15:]
+    header = f"🔍 {len(matches)} results for \"{query}\""
+    if len(matches) > 15:
+        header += f" (showing last 15)"
+    result = header + "\n\n" + "\n\n".join(recent)
+    for chunk in split_message(result, 4000):
+        await update.message.reply_text(chunk)
+
+
+async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show recent conversation history: /history [count]"""
+    if not is_authorized(update):
+        return
+    if not HISTORY_FILE.exists():
+        await update.message.reply_text("No conversation history yet.")
+        return
+
+    text = update.message.text.replace("/history", "", 1).strip()
+    count = int(text) if text.isdigit() else 20
+
+    lines = HISTORY_FILE.read_text().splitlines()
+    recent = lines[-count:]
+
+    entries = []
+    for line in recent:
+        try:
+            entry = json.loads(line)
+            ts = entry["ts"][:16].replace("T", " ")
+            role = entry["role"]
+            text = entry["text"][:200]
+            entries.append(f"[{ts}] {role}: {text}")
+        except json.JSONDecodeError:
+            continue
+
+    if not entries:
+        await update.message.reply_text("No history found.")
+        return
+
+    total = len(lines)
+    result = f"📜 Last {len(entries)} of {total} total entries\n\n" + "\n\n".join(entries)
+    for chunk in split_message(result, 4000):
+        await update.message.reply_text(chunk)
+
+
 async def send_response(update: Update, context: ContextTypes.DEFAULT_TYPE, response: str):
+    log_conversation("assistant", response, session.get("id"))
     img_pattern = re.compile(r'(/[\w/.~-]+\.(?:png|jpg|jpeg|gif|webp))', re.IGNORECASE)
     for img_path in img_pattern.findall(response):
         expanded = os.path.expanduser(img_path)
@@ -795,6 +886,7 @@ def main():
         ("jobs", jobs_cmd), ("addjob", addjob_cmd), ("rmjob", rmjob_cmd),
         ("togglejob", togglejob_cmd), ("editjob", editjob_cmd),
         ("runjob", runjob_cmd), ("templates", templates_cmd),
+        ("search", search_cmd), ("history", history_cmd),
     ]:
         app.add_handler(CommandHandler(name, handler))
 
