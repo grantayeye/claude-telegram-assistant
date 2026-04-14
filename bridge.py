@@ -379,7 +379,7 @@ async def runjob_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = int(text)
         job = jobs[idx]
         await send_to_chat(update.message,f"Running: {job['name']}...")
-        result = await run_claude_oneshot(job["prompt"])
+        result = await run_claude_oneshot(job["prompt"], model=job.get("model"))
         await deliver_result(job, result)
         jobs[idx]["last_run"] = now_tz().isoformat()
         save_jobs(jobs)
@@ -684,7 +684,7 @@ def prune_old_runs():
     except Exception as e:
         logger.error(f"Run prune failed: {e}")
 
-async def _execute_job(job_name: str, job_prompt: str, timeout_seconds: int):
+async def _execute_job(job_name: str, job_prompt: str, timeout_seconds: int, model: str = None):
     """Run a single job. Returns dict with execution outcome (no jobs.json mutation here)."""
     start_ts = now_tz()
     run_output = ""
@@ -693,7 +693,7 @@ async def _execute_job(job_name: str, job_prompt: str, timeout_seconds: int):
     delivery_status = ""
     failed = False
     try:
-        result = await run_claude_oneshot(job_prompt, timeout_seconds=timeout_seconds)
+        result = await run_claude_oneshot(job_prompt, timeout_seconds=timeout_seconds, model=model)
         run_output = result or ""
     except asyncio.TimeoutError:
         failed = True
@@ -729,7 +729,7 @@ async def _run_job_with_concurrency(job: dict, current_iso: str):
         async with _job_semaphore:
             timeout_seconds = max(60, min(MAX_JOB_TIMEOUT, int(job.get("timeout_seconds", DEFAULT_JOB_TIMEOUT))))
             logger.info(f"Running scheduled job: {job_name} (timeout={timeout_seconds}s)")
-            outcome = await _execute_job(job_name, job["prompt"], timeout_seconds)
+            outcome = await _execute_job(job_name, job["prompt"], timeout_seconds, model=job.get("model"))
 
             # Deliver only if execution succeeded
             if not outcome["failed"]:
@@ -1060,8 +1060,10 @@ Body:
 
 # ===================== CLAUDE EXECUTION =====================
 
-def build_claude_cmd(output_format="json", streaming=False):
+def build_claude_cmd(output_format="json", streaming=False, model=None):
     cmd = [CLAUDE_PATH, "--print", "--dangerously-skip-permissions"]
+    if model:
+        cmd.extend(["--model", model])
     if streaming:
         cmd.extend(["--verbose", "--output-format", "stream-json", "--include-partial-messages"])
     else:
@@ -1098,6 +1100,7 @@ def build_claude_cmd(output_format="json", streaming=False):
         "  prompt: full instruction Claude will execute when the job fires\n"
         "  enabled: true | false\n"
         "  topic_id: integer (Telegram topic id) or null for DM\n"
+        "  model: optional, e.g. 'claude-sonnet-4-6' or 'claude-opus-4-6' (omit for default)\n"
         "  timeout_seconds: optional, 60-900, default 300 (use 600 for heavy jobs)\n"
         "  last_run: null on creation (scheduler will set it)\n"
         "  consecutive_errors: 0 on creation\n"
@@ -1118,8 +1121,8 @@ def build_claude_cmd(output_format="json", streaming=False):
     return cmd
 
 
-async def run_claude_oneshot(prompt: str, timeout_seconds: int = 300) -> str:
-    cmd = build_claude_cmd(output_format="json")
+async def run_claude_oneshot(prompt: str, timeout_seconds: int = 300, model: str = None) -> str:
+    cmd = build_claude_cmd(output_format="json", model=model)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.PIPE,
@@ -1147,9 +1150,9 @@ async def run_claude_oneshot(prompt: str, timeout_seconds: int = 300) -> str:
         return raw
 
 
-async def run_claude_streaming(prompt: str, update: Update, context: ContextTypes.DEFAULT_TYPE, status_msg, topic_key: str = "dm", cwd: str = None):
+async def run_claude_streaming(prompt: str, update: Update, context: ContextTypes.DEFAULT_TYPE, status_msg, topic_key: str = "dm", cwd: str = None, model: str = None):
     sess = get_session(topic_key)
-    cmd = build_claude_cmd(streaming=True)
+    cmd = build_claude_cmd(streaming=True, model=model)
     if sess.get("id"):
         cmd.extend(["--resume", sess["id"]])
 
@@ -1338,6 +1341,13 @@ async def run_claude_streaming(prompt: str, update: Update, context: ContextType
         pass
 
     if sent_text_blocks > 0:
+        try:
+            kw = {"chat_id": chat_id, "text": "✅ Done."}
+            if thread_id:
+                kw["message_thread_id"] = thread_id
+            await bot.send_message(**kw)
+        except Exception:
+            pass
         return
 
     # Fallback: agent finished without any text blocks (rare). Send the result event's text.
@@ -1469,7 +1479,7 @@ async def _process_prompt(prompt: str, update: Update, context: ContextTypes.DEF
             if override.get("prompt_prefix"):
                 augmented = override["prompt_prefix"] + augmented
 
-            await run_claude_streaming(augmented, update, context, status_msg, topic_key, cwd=override.get("cwd"))
+            await run_claude_streaming(augmented, update, context, status_msg, topic_key, cwd=override.get("cwd"), model=override.get("model"))
         except asyncio.CancelledError:
             await safe_edit(status_msg, "🛑 Stopped by /stop.")
             raise
